@@ -1,0 +1,28 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region $ECR_REGION | docker login --username AWS --password-stdin $ECR_LOGIN_URL
+      - GIT_SHA=`echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7`
+
+      # Dockerfile is passed in as an environment variable since we don't have control over the git repo
+      #   and I didn't want to create an entire s3 bucket for just a buildspec.yml and Dockerfile
+      - echo "$DOCKERFILE" > Dockerfile
+
+      # Refresh the local docker cache from ECR to speed up builds
+      #   Note: This does require certain usage patterns with tagging
+      - docker pull $ECR_REPO_URL:latest || true
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo "Building the Docker image [$IMAGE_TAG, $GIT_SHA]..."
+      - docker build -t $ECR_REPO_NAME:$IMAGE_TAG .
+      - docker image tag $ECR_REPO_NAME:$IMAGE_TAG $ECR_REPO_URL:$IMAGE_TAG
+      - docker image tag $ECR_REPO_NAME:$IMAGE_TAG $ECR_REPO_URL:$GIT_SHA
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker image...
+      - docker image push $ECR_REPO_URL
